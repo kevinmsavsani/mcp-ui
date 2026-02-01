@@ -1,12 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import type { MetaFunction } from "react-router";
-
-export const meta: MetaFunction = () => {
-    return [
-        { title: "MCP Chatbot | Multi-Server Test" },
-        { name: "description", content: "Chat with multiple MCP servers seamlessly" },
-    ];
-};
+import { Settings, Send, Server, Zap, Shield, Cpu } from "lucide-react";
 
 interface Message {
     role: "user" | "bot";
@@ -21,9 +14,13 @@ interface ServerStatus {
     type: string;
 }
 
-export default function Home() {
+export default function App() {
     const [messages, setMessages] = useState<Message[]>([
-        { role: "bot", content: "Hello! I'm connected to 3 MCP servers. How can I help you today?", timestamp: new Date() }
+        {
+            role: "bot",
+            content: "Hello! I'm your MCP Orchestrator. I can route your requests through 3 different servers. How can I help you today?",
+            timestamp: new Date()
+        }
     ]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
@@ -32,7 +29,7 @@ export default function Home() {
     const [selectedServer, setSelectedServer] = useState<string>("local-python");
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const BACKEND_URL = "http://localhost:3001"; // Default backend port
+    const BACKEND_URL = "/api"; // Using proxy from vite.config.ts
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -45,7 +42,7 @@ export default function Home() {
     useEffect(() => {
         const fetchStatus = async () => {
             try {
-                const res = await fetch(`${BACKEND_URL}/api/servers`);
+                const res = await fetch(`${BACKEND_URL}/servers`);
                 if (res.ok) {
                     const data = await res.json();
                     setServers(data);
@@ -70,7 +67,7 @@ export default function Home() {
         setLoading(true);
 
         try {
-            const response = await fetch(`${BACKEND_URL}/api/chat`, {
+            const response = await fetch(`${BACKEND_URL}/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -104,6 +101,12 @@ export default function Home() {
         }
     };
 
+    const getServerIcon = (name: string) => {
+        if (name.includes('python')) return <Cpu size={16} />;
+        if (name.includes('github')) return <Shield size={16} />;
+        return <Server size={16} />;
+    };
+
     return (
         <div className="app-container">
             {/* Sidebar */}
@@ -114,7 +117,9 @@ export default function Home() {
 
                 <div className="server-list">
                     <div style={{ marginBottom: '24px' }}>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>ROUTING MODE</p>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Zap size={14} /> ROUTING MODE
+                        </p>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <div
                                 className={`routing-pill ${mode === 'auto' ? 'active' : ''}`}
@@ -131,7 +136,9 @@ export default function Home() {
                         </div>
                     </div>
 
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>CONNECTED SERVERS</p>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Server size={14} /> CONNECTED SERVERS
+                    </p>
                     {Object.entries(servers).map(([name, status]) => (
                         <div
                             key={name}
@@ -140,15 +147,25 @@ export default function Home() {
                             style={{ cursor: mode === 'manual' ? 'pointer' : 'default' }}
                         >
                             <div className="server-name">
-                                {name}
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {getServerIcon(name)}
+                                    {name}
+                                </span>
                                 <div className={`status-indicator ${status.connected ? 'status-online' : 'status-offline'}`} />
                             </div>
                             <div className="server-type">{status.type}</div>
                         </div>
                     ))}
                     {Object.keys(servers).length === 0 && (
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Trying to connect...</p>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Trying to connect to backend...</p>
                     )}
+                </div>
+
+                <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', marginTop: 'auto' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                        <Settings size={18} />
+                        <span>Settings</span>
+                    </div>
                 </div>
             </aside>
 
@@ -156,7 +173,8 @@ export default function Home() {
             <main className="main-chat">
                 <header className="chat-header">
                     <div>
-                        <h3 style={{ fontSize: '1.1rem' }}>
+                        <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {mode === 'auto' ? <Zap size={18} color="var(--accent-color)" /> : <Server size={18} color="var(--accent-color)" />}
                             {mode === 'auto' ? 'Intelligent Routing' : `Connected to: ${selectedServer}`}
                         </h3>
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
@@ -168,10 +186,12 @@ export default function Home() {
                 <div className="messages-container">
                     {messages.map((msg, i) => (
                         <div key={i} className={`message message-${msg.role}`}>
-                            <div className="message-content">{msg.content}</div>
+                            <div className="message-content" style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
                             {msg.server && (
                                 <div className="message-meta">
-                                    <span>🛰️ {msg.server}</span>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        {getServerIcon(msg.server)} {msg.server}
+                                    </span>
                                     {msg.tool && <span>🛠️ {msg.tool}</span>}
                                 </div>
                             )}
@@ -179,7 +199,10 @@ export default function Home() {
                     ))}
                     {loading && (
                         <div className="message message-bot" style={{ opacity: 0.7 }}>
-                            Thinking...
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <div className="typing-dot"></div>
+                                <span>Thinking...</span>
+                            </div>
                         </div>
                     )}
                     <div ref={messagesEndRef} />
@@ -195,11 +218,32 @@ export default function Home() {
                             disabled={loading}
                         />
                         <button type="submit" disabled={loading || !input.trim()}>
-                            {loading ? "..." : "Send"}
+                            {loading ? <Cpu size={18} className="animate-spin" /> : <Send size={18} />}
                         </button>
                     </form>
                 </div>
             </main>
+
+            <style>{`
+        .animate-spin {
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .typing-dot {
+          width: 4px;
+          height: 4px;
+          background: var(--text-secondary);
+          border-radius: 50%;
+          animation: pulse 1s infinite alternate;
+        }
+        @keyframes pulse {
+          from { opacity: 0.2; }
+          to { opacity: 1; }
+        }
+      `}</style>
         </div>
     );
 }

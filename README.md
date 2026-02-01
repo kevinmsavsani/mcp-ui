@@ -32,7 +32,7 @@ A minimal chatbot connecting to three types of Model Context Protocol (MCP) serv
 - **MCP Servers**:
   - `local-python`: Local Python script using `stdio` transport.
   - `github`: Docker image (`ghcr.io/github/github-mcp-server`) using `stdio`.
-  - `atlassian`: SSE server endpoint.
+  - `atlassian`: Docker image (`ghcr.io/sooperset/mcp-atlassian:latest`) using `stdio`.
 
 ## Features
 - **Auto-routing**: Automatically tries servers in sequence.

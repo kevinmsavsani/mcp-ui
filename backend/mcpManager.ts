@@ -1,13 +1,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { spawn } from "child_process";
 
 export interface MCPServer {
     name: string;
     client: Client;
     connected: boolean;
-    type: 'stdio' | 'sse';
+    type: 'stdio';
 }
 
 export class MCPManager {
@@ -43,14 +42,28 @@ export class MCPManager {
             }
         );
 
-        // 3. Atlassian SSE Server
-        if (process.env.ATLASSIAN_SSE_URL) {
-            await this.connectSSEServer(
-                'atlassian',
-                process.env.ATLASSIAN_SSE_URL,
-                process.env.ATLASSIAN_API_TOKEN
-            );
-        }
+        // 3. Atlassian Docker MCP Server
+        await this.connectStdioServer(
+            'atlassian',
+            'docker',
+            [
+                'run',
+                '-i',
+                '--rm',
+                '-e',
+                'ATLASSIAN_URL',
+                '-e',
+                'ATLASSIAN_API_TOKEN',
+                '-e',
+                'ATLASSIAN_EMAIL',
+                'ghcr.io/sooperset/mcp-atlassian:latest'
+            ],
+            {
+                ATLASSIAN_URL: process.env.ATLASSIAN_URL || '',
+                ATLASSIAN_API_TOKEN: process.env.ATLASSIAN_API_TOKEN || '',
+                ATLASSIAN_EMAIL: process.env.ATLASSIAN_EMAIL || ''
+            }
+        );
 
         console.log(`✅ Connected to ${this.servers.size} MCP servers`);
     }
@@ -96,46 +109,6 @@ export class MCPManager {
         }
     }
 
-    private async connectSSEServer(
-        name: string,
-        url: string,
-        apiToken?: string
-    ) {
-        try {
-            const client = new Client({
-                name: `mcp-chatbot-${name}`,
-                version: "1.0.0"
-            }, {
-                capabilities: {}
-            });
-
-            const headers: Record<string, string> = {};
-            if (apiToken) {
-                headers['Authorization'] = `Bearer ${apiToken}`;
-            }
-
-            const transport = new SSEClientTransport(new URL(url));
-
-            await client.connect(transport);
-
-            this.servers.set(name, {
-                name,
-                client,
-                connected: true,
-                type: 'sse'
-            });
-
-            console.log(`✅ Connected to ${name} MCP server (SSE)`);
-        } catch (error) {
-            console.error(`❌ Failed to connect to ${name}:`, error);
-            this.servers.set(name, {
-                name,
-                client: null as any,
-                connected: false,
-                type: 'sse'
-            });
-        }
-    }
 
     async sendMessage(serverName: string, message: string): Promise<any> {
         const server = this.servers.get(serverName);
