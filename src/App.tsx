@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { Settings, Send, Server, Zap, Shield, Cpu } from "lucide-react";
+import { Settings, Send, Server, Zap, Shield, Cpu, Calculator } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Message {
     role: "user" | "bot";
@@ -12,6 +14,7 @@ interface Message {
 interface ServerStatus {
     connected: boolean;
     type: string;
+    toolCount?: number;
 }
 
 export default function App() {
@@ -26,7 +29,7 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [servers, setServers] = useState<Record<string, ServerStatus>>({});
     const [mode, setMode] = useState<"auto" | "manual">("auto");
-    const [selectedServer, setSelectedServer] = useState<string>("local-python");
+    const [selectedServer, setSelectedServer] = useState<string>("calculator");
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const BACKEND_URL = "/api"; // Using proxy from vite.config.ts
@@ -102,9 +105,10 @@ export default function App() {
     };
 
     const getServerIcon = (name: string) => {
-        if (name.includes('python')) return <Cpu size={16} />;
+        if (name.includes('calculator')) return <Calculator size={16} />;
         if (name.includes('github')) return <Shield size={16} />;
-        return <Server size={16} />;
+        if (name.includes('atlassian')) return <Server size={16} />;
+        return <Cpu size={16} />;
     };
 
     return (
@@ -153,7 +157,9 @@ export default function App() {
                                 </span>
                                 <div className={`status-indicator ${status.connected ? 'status-online' : 'status-offline'}`} />
                             </div>
-                            <div className="server-type">{status.type}</div>
+                            <div className="server-type">
+                                {status.type} {status.toolCount !== undefined && `• ${status.toolCount} tools`}
+                            </div>
                         </div>
                     ))}
                     {Object.keys(servers).length === 0 && (
@@ -186,7 +192,11 @@ export default function App() {
                 <div className="messages-container">
                     {messages.map((msg, i) => (
                         <div key={i} className={`message message-${msg.role}`}>
-                            <div className="message-content" style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                            <div className="message-content markdown-content">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {msg.content}
+                                </ReactMarkdown>
+                            </div>
                             {msg.server && (
                                 <div className="message-meta">
                                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -212,7 +222,7 @@ export default function App() {
                     <form onSubmit={handleSend} className="input-wrapper">
                         <input
                             type="text"
-                            placeholder="Ask anything... (e.g. Try 'echo hello' for local server)"
+                            placeholder="Ask anything... (e.g. 'add 5 and 3' or 'calculate 10 * 20')"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             disabled={loading}
