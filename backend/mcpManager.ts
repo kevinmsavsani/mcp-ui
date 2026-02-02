@@ -1,99 +1,103 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-
-export interface MCPServer {
-    name: string;
-    client: Client;
-    connected: boolean;
-    type: 'stdio';
-}
-
-export interface ToolInfo {
-    name: string;
-    description: string;
-    inputSchema: any;
-    serverName: string;
-}
-
-export interface ToolCallResult {
-    response: string;
-    server: string;
-    tool: string;
-    steps?: string[];
-}
+import { logger, perfMonitor } from './utils/logger.js';
+import { ServerConfig, MCPServer, ToolInfo, ToolCallResult } from './types/index.js';
 
 export class MCPManager {
     private servers: Map<string, MCPServer> = new Map();
     private toolCache: Map<string, ToolInfo[]> = new Map();
+    private serverConfigs: ServerConfig[] = [];
+
+    constructor() {
+        logger.info('MCPManager initialized', { component: 'MCPManager' });
+    }
 
     async initializeServers() {
-        console.log('🚀 Initializing MCP servers...');
+        const endTimer = perfMonitor.startTimer('mcp_initialization');
+        logger.info('🚀 Initializing MCP servers...', { component: 'MCPManager' });
 
-        // 1. Calculator MCP Server (Local Python)
-        await this.connectStdioServer(
-            'calculator',
-            'python3',
-            [process.env.CALCULATOR_SERVER_PATH || './mcp-servers/calculator-server.py']
-        );
-
-        // 2. GitHub Docker MCP Server
-        await this.connectStdioServer(
-            'github',
-            'docker',
-            [
-                'run',
-                '-i',
-                '--rm',
-                '-e',
-                'GITHUB_PERSONAL_ACCESS_TOKEN',
-                '-e',
-                'GITHUB_HOST',
-                'ghcr.io/github/github-mcp-server'
-            ],
+        // Define server configurations
+        this.serverConfigs = [
             {
-                GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '',
-                GITHUB_HOST: process.env.GITHUB_HOST || 'https://github.com'
-            }
-        );
-
-        // 3. Atlassian Docker MCP Server
-        await this.connectStdioServer(
-            'atlassian',
-            'docker',
-            [
-                'run',
-                '-i',
-                '--rm',
-                '-e',
-                'ATLASSIAN_URL',
-                '-e',
-                'ATLASSIAN_API_TOKEN',
-                '-e',
-                'ATLASSIAN_EMAIL',
-                'ghcr.io/sooperset/mcp-atlassian:latest'
-            ],
+                name: 'calculator',
+                command: 'python3',
+                args: [process.env.CALCULATOR_SERVER_PATH || './mcp-servers/calculator-server.py'],
+                env: {},
+                readOnly: true
+            },
             {
-                ATLASSIAN_URL: process.env.ATLASSIAN_URL || '',
-                ATLASSIAN_API_TOKEN: process.env.ATLASSIAN_API_TOKEN || '',
-                ATLASSIAN_EMAIL: process.env.ATLASSIAN_EMAIL || ''
+                name: 'github',
+                command: 'docker',
+                args: [
+                    'run', '-i', '--rm',
+                    '-e', 'GITHUB_PERSONAL_ACCESS_TOKEN',
+                    '-e', 'GITHUB_HOST',
+                    'ghcr.io/github/github-mcp-server'
+                ],
+                env: {
+                    GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '',
+                    GITHUB_HOST: process.env.GITHUB_HOST || 'https://github.com'
+                },
+                readOnly: true
+            },
+            {
+                name: 'atlassian',
+                command: 'docker',
+                args: [
+                    'run', '-i', '--rm',
+                    '-e', 'CONFLUENCE_URL',
+                    '-e', 'CONFLUENCE_USERNAME',
+                    '-e', 'CONFLUENCE_API_TOKEN',
+                    '-e', 'JIRA_URL',
+                    '-e', 'JIRA_USERNAME',
+                    '-e', 'JIRA_API_TOKEN',
+                    'ghcr.io/sooperset/mcp-atlassian:latest'
+                ],
+                env: {
+                    CONFLUENCE_URL: process.env.CONFLUENCE_URL || '',
+                    CONFLUENCE_USERNAME: process.env.CONFLUENCE_USERNAME || '',
+                    CONFLUENCE_API_TOKEN: process.env.CONFLUENCE_API_TOKEN || '',
+                    JIRA_URL: process.env.JIRA_URL || '',
+                    JIRA_USERNAME: process.env.JIRA_USERNAME || '',
+                    JIRA_API_TOKEN: process.env.JIRA_API_TOKEN || ''
+                },
+                readOnly: true
             }
+        ];
+
+        // Connect to all servers
+        const connectionPromises = this.serverConfigs.map(config =>
+            this.connectStdioServer(config)
         );
 
-        console.log(`✅ Connected to ${this.servers.size} MCP servers`);
+        await Promise.allSettled(connectionPromises);
+
+        const duration = endTimer();
+        const connectedCount = Array.from(this.servers.values()).filter(s => s.connected).length;
+
+        logger.info(`✅ MCP initialization complete`, {
+            component: 'MCPManager',
+            connectedServers: connectedCount,
+            totalServers: this.serverConfigs.length,
+            duration
+        });
 
         // Cache all tools
         await this.cacheAllTools();
     }
 
-    private async connectStdioServer(
-        name: string,
-        command: string,
-        args: string[],
-        env?: Record<string, string>
-    ) {
+    private async connectStdioServer(config: ServerConfig) {
+        const endTimer = perfMonitor.startTimer(`server_connect_${config.name}`);
+
         try {
+            logger.debug(`Connecting to ${config.name} server...`, {
+                component: 'MCPManager',
+                server: config.name,
+                command: config.command
+            });
+
             const client = new Client({
-                name: `mcp-chatbot-${name}`,
+                name: `mcp-chatbot-${config.name}`,
                 version: "1.0.0"
             }, {
                 capabilities: {}
@@ -105,38 +109,56 @@ export class MCPManager {
                     mergedEnv[key] = value;
                 }
             }
-            if (env) {
-                Object.assign(mergedEnv, env);
+            if (config.env) {
+                Object.assign(mergedEnv, config.env);
             }
 
             const transport = new StdioClientTransport({
-                command,
-                args,
+                command: config.command,
+                args: config.args,
                 env: mergedEnv
             });
 
             await client.connect(transport);
 
-            this.servers.set(name, {
-                name,
+            this.servers.set(config.name, {
+                name: config.name,
                 client,
                 connected: true,
-                type: 'stdio'
+                type: 'stdio',
+                readOnly: config.readOnly
             });
 
-            console.log(`✅ Connected to ${name} MCP server (stdio, read-only mode)`);
-        } catch (error) {
-            console.error(`❌ Failed to connect to ${name}:`, error);
-            this.servers.set(name, {
-                name,
+            const duration = endTimer();
+            logger.info(`✅ Connected to ${config.name} MCP server`, {
+                component: 'MCPManager',
+                server: config.name,
+                type: 'stdio',
+                readOnly: config.readOnly,
+                duration
+            });
+        } catch (error: any) {
+            const duration = endTimer();
+            logger.error(`❌ Failed to connect to ${config.name}`, {
+                component: 'MCPManager',
+                server: config.name,
+                duration
+            }, error);
+
+            this.servers.set(config.name, {
+                name: config.name,
                 client: null as any,
                 connected: false,
-                type: 'stdio'
+                type: 'stdio',
+                readOnly: config.readOnly,
+                error: error.message
             });
         }
     }
 
     private async cacheAllTools() {
+        const endTimer = perfMonitor.startTimer('cache_all_tools');
+
         for (const [name, server] of this.servers) {
             if (server.connected) {
                 try {
@@ -148,13 +170,30 @@ export class MCPManager {
                         serverName: name
                     }));
                     this.toolCache.set(name, toolInfos);
-                    console.log(`📦 Cached ${toolInfos.length} tools from ${name}`);
-                } catch (error) {
-                    console.error(`Failed to cache tools from ${name}:`, error);
+
+                    logger.debug(`📦 Cached tools from ${name}`, {
+                        component: 'MCPManager',
+                        server: name,
+                        toolCount: toolInfos.length
+                    });
+                } catch (error: any) {
+                    logger.error(`Failed to cache tools from ${name}`, {
+                        component: 'MCPManager',
+                        server: name
+                    }, error);
                     this.toolCache.set(name, []);
                 }
             }
         }
+
+        const duration = endTimer();
+        const totalTools = Array.from(this.toolCache.values()).reduce((sum, tools) => sum + tools.length, 0);
+
+        logger.info(`Tool caching complete`, {
+            component: 'MCPManager',
+            totalTools,
+            duration
+        });
     }
 
     /**
@@ -203,6 +242,13 @@ export class MCPManager {
         const params: Record<string, any> = {};
         const schema = tool.inputSchema;
 
+        logger.debug('Mapping query to parameters', {
+            component: 'MCPManager',
+            tool: tool.name,
+            server: tool.serverName,
+            query
+        });
+
         if (!schema || !schema.properties) {
             return { query };
         }
@@ -244,6 +290,12 @@ export class MCPManager {
                 params[paramName] = lowerQuery.includes('true') || lowerQuery.includes('yes');
             }
         }
+
+        logger.debug('Parameter mapping complete', {
+            component: 'MCPManager',
+            tool: tool.name,
+            params
+        });
 
         return params;
     }
@@ -299,20 +351,34 @@ export class MCPManager {
      * Select the best tool for a query from all available tools
      */
     private selectBestTool(query: string, serverName?: string): ToolInfo | null {
+        const endTimer = perfMonitor.startTimer('tool_selection');
         const keywords = this.extractKeywords(query);
         let allTools: ToolInfo[] = [];
 
         if (serverName) {
             // Manual mode: only use tools from selected server
             allTools = this.toolCache.get(serverName) || [];
+            logger.debug('Manual mode: selecting from specific server', {
+                component: 'MCPManager',
+                server: serverName,
+                availableTools: allTools.length
+            });
         } else {
             // Auto mode: use all tools from all servers
             for (const tools of this.toolCache.values()) {
                 allTools.push(...tools);
             }
+            logger.debug('Auto mode: selecting from all servers', {
+                component: 'MCPManager',
+                availableTools: allTools.length
+            });
         }
 
         if (allTools.length === 0) {
+            logger.warn('No tools available for selection', {
+                component: 'MCPManager',
+                serverName
+            });
             return null;
         }
 
@@ -325,33 +391,67 @@ export class MCPManager {
         // Sort by score (highest first)
         scoredTools.sort((a, b) => b.score - a.score);
 
-        console.log(`🎯 Tool selection for "${query}":`);
-        scoredTools.slice(0, 3).forEach(({ tool, score }) => {
-            console.log(`  - ${tool.serverName}:${tool.name} (score: ${score})`);
+        const duration = endTimer();
+        const selectedTool = scoredTools[0].score > 0 ? scoredTools[0].tool : scoredTools[0].tool;
+
+        logger.info(`🎯 Tool selected`, {
+            component: 'MCPManager',
+            query,
+            selectedTool: `${selectedTool.serverName}:${selectedTool.name}`,
+            score: scoredTools[0].score,
+            duration,
+            topCandidates: scoredTools.slice(0, 3).map(({ tool, score }) => ({
+                tool: `${tool.serverName}:${tool.name}`,
+                score
+            }))
         });
 
-        return scoredTools[0].score > 0 ? scoredTools[0].tool : scoredTools[0].tool;
+        return selectedTool;
     }
 
     /**
      * Call a specific tool with mapped parameters
      */
     private async callTool(tool: ToolInfo, params: Record<string, any>): Promise<any> {
+        const endTimer = perfMonitor.startTimer(`tool_call_${tool.name}`);
         const server = this.servers.get(tool.serverName);
 
         if (!server || !server.connected) {
             throw new Error(`Server ${tool.serverName} is not connected`);
         }
 
-        console.log(`🔧 Calling tool: ${tool.serverName}:${tool.name}`);
-        console.log(`📝 Parameters:`, JSON.stringify(params, null, 2));
-
-        const result = await server.client.callTool({
-            name: tool.name,
-            arguments: params
+        logger.info(`🔧 Calling tool`, {
+            component: 'MCPManager',
+            server: tool.serverName,
+            tool: tool.name,
+            params
         });
 
-        return result;
+        try {
+            const result = await server.client.callTool({
+                name: tool.name,
+                arguments: params
+            });
+
+            const duration = endTimer();
+            logger.info(`✅ Tool call successful`, {
+                component: 'MCPManager',
+                server: tool.serverName,
+                tool: tool.name,
+                duration
+            });
+
+            return result;
+        } catch (error: any) {
+            const duration = endTimer();
+            logger.error(`❌ Tool call failed`, {
+                component: 'MCPManager',
+                server: tool.serverName,
+                tool: tool.name,
+                duration
+            }, error);
+            throw error;
+        }
     }
 
     /**
@@ -359,6 +459,10 @@ export class MCPManager {
      */
     private formatResponse(result: any, tool: ToolInfo): string {
         if (!result.content) {
+            logger.warn('Tool returned no content', {
+                component: 'MCPManager',
+                tool: tool.name
+            });
             return 'No response from tool';
         }
 
@@ -374,6 +478,14 @@ export class MCPManager {
      * Send message to a specific server (manual mode)
      */
     async sendMessage(serverName: string, message: string): Promise<ToolCallResult> {
+        const endTimer = perfMonitor.startTimer('send_message_manual');
+
+        logger.info('Processing message in manual mode', {
+            component: 'MCPManager',
+            server: serverName,
+            messageLength: message.length
+        });
+
         const server = this.servers.get(serverName);
 
         if (!server || !server.connected) {
@@ -400,6 +512,15 @@ export class MCPManager {
         // Format response
         const response = this.formatResponse(result, tool);
 
+        const duration = endTimer();
+        logger.info('Message processed successfully', {
+            component: 'MCPManager',
+            mode: 'manual',
+            server: serverName,
+            tool: tool.name,
+            duration
+        });
+
         return {
             response,
             server: serverName,
@@ -411,6 +532,13 @@ export class MCPManager {
      * Auto-route message to best available tool (auto mode)
      */
     async autoRoute(message: string): Promise<ToolCallResult> {
+        const endTimer = perfMonitor.startTimer('auto_route');
+
+        logger.info('Processing message in auto mode', {
+            component: 'MCPManager',
+            messageLength: message.length
+        });
+
         // Select best tool from all servers
         const tool = this.selectBestTool(message);
 
@@ -427,6 +555,15 @@ export class MCPManager {
         // Format response
         const response = this.formatResponse(result, tool);
 
+        const duration = endTimer();
+        logger.info('Message processed successfully', {
+            component: 'MCPManager',
+            mode: 'auto',
+            server: tool.serverName,
+            tool: tool.name,
+            duration
+        });
+
         return {
             response,
             server: tool.serverName,
@@ -442,7 +579,9 @@ export class MCPManager {
             status[name] = {
                 connected: server.connected,
                 type: server.type,
-                toolCount: tools.length
+                toolCount: tools.length,
+                readOnly: server.readOnly,
+                error: server.error
             };
         });
 
@@ -464,17 +603,27 @@ export class MCPManager {
     }
 
     async cleanup() {
+        logger.info('Cleaning up MCP connections', { component: 'MCPManager' });
+
         for (const [name, server] of this.servers) {
             if (server.connected) {
                 try {
                     await server.client.close();
-                    console.log(`Closed connection to ${name}`);
-                } catch (error) {
-                    console.error(`Error closing ${name}:`, error);
+                    logger.info(`Closed connection to ${name}`, {
+                        component: 'MCPManager',
+                        server: name
+                    });
+                } catch (error: any) {
+                    logger.error(`Error closing ${name}`, {
+                        component: 'MCPManager',
+                        server: name
+                    }, error);
                 }
             }
         }
         this.servers.clear();
         this.toolCache.clear();
+
+        logger.info('MCP cleanup complete', { component: 'MCPManager' });
     }
 }
