@@ -21,15 +21,13 @@ export default function App() {
     const [messages, setMessages] = useState<Message[]>([
         {
             role: "bot",
-            content: "Hello! I'm your MCP Orchestrator. I can route your requests through 3 different servers. How can I help you today?",
+            content: "Hello! I'm your MCP Orchestrator. I automatically route your requests through the best available servers. How can I help you today?",
             timestamp: new Date()
         }
     ]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [servers, setServers] = useState<Record<string, ServerStatus>>({});
-    const [mode, setMode] = useState<"auto" | "manual">("auto");
-    const [selectedServer, setSelectedServer] = useState<string>("calculator");
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const BACKEND_URL = "/api"; // Using proxy from vite.config.ts
@@ -74,9 +72,7 @@ export default function App() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    message: input,
-                    mode: mode,
-                    server: selectedServer
+                    message: input
                 }),
             });
 
@@ -120,35 +116,14 @@ export default function App() {
                 </div>
 
                 <div className="server-list">
-                    <div style={{ marginBottom: '24px' }}>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Zap size={14} /> ROUTING MODE
-                        </p>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <div
-                                className={`routing-pill ${mode === 'auto' ? 'active' : ''}`}
-                                onClick={() => setMode('auto')}
-                            >
-                                Auto
-                            </div>
-                            <div
-                                className={`routing-pill ${mode === 'manual' ? 'active' : ''}`}
-                                onClick={() => setMode('manual')}
-                            >
-                                Manual
-                            </div>
-                        </div>
-                    </div>
-
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Server size={14} /> CONNECTED SERVERS
                     </p>
                     {Object.entries(servers).map(([name, status]) => (
                         <div
                             key={name}
-                            className={`server-item ${mode === 'manual' && selectedServer === name ? 'active' : ''}`}
-                            onClick={() => mode === 'manual' && setSelectedServer(name)}
-                            style={{ cursor: mode === 'manual' ? 'pointer' : 'default' }}
+                            className="server-item"
+                            style={{ cursor: 'default' }}
                         >
                             <div className="server-name">
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -180,11 +155,11 @@ export default function App() {
                 <header className="chat-header">
                     <div>
                         <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {mode === 'auto' ? <Zap size={18} color="var(--accent-color)" /> : <Server size={18} color="var(--accent-color)" />}
-                            {mode === 'auto' ? 'Intelligent Routing' : `Connected to: ${selectedServer}`}
+                            <Zap size={18} color="var(--accent-color)" />
+                            Intelligent Routing
                         </h3>
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            {mode === 'auto' ? 'Automatically selecting the best server for your query' : 'Direct manual server connection'}
+                            Automatically selecting the best server for your query
                         </p>
                     </div>
                 </header>

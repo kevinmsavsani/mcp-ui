@@ -111,7 +111,6 @@ async def chat(request: ChatRequest, fastapi_request: Request):
     try:
         logger.info("Processing agentic chat request", {
             "query": request.message,
-            "mode": request.mode,
             "request_id": request_id
         })
         

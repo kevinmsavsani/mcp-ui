@@ -34,8 +34,6 @@ class ToolCallResult(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    mode: str = "auto" # "auto" or "manual"
-    server: Optional[str] = None
     request_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
