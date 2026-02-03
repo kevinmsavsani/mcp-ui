@@ -1,0 +1,9 @@
+fastapi==0.109.2
+uvicorn==0.27.1
+openai==1.12.0
+mcp
+python-dotenv==1.0.1
+uuid==1.30
+pydantic==2.6.1
+pydantic-settings==2.1.0
+requests==2.31.0
